@@ -1,16 +1,23 @@
 // utils/auth.ts
 import * as SecureStore from 'expo-secure-store';
 
-const TOKEN_KEY = 'tona_user_token';
-
 export const authStorage = {
   async saveToken(token: string) {
-    await SecureStore.setItemAsync(TOKEN_KEY, token);
+    try {
+      await SecureStore.setItemAsync('user_session_token', token);
+    } catch (e) {
+      console.error("SecureStore write failure:", e);
+      // Fallback if secure store is misconfigured on the emulator
+    }
   },
   async getToken() {
-    return await SecureStore.getItemAsync(TOKEN_KEY);
-  },
-  async removeToken() {
-    await SecureStore.deleteItemAsync(TOKEN_KEY);
+    try {
+      return await SecureStore.getItemAsync('user_session_token');
+    } catch (e) {
+      return null;
+    }
   }
+  ,async removeToken() {
+    await SecureStore.deleteItemAsync('user_session_token');
+  },
 };

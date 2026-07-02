@@ -1,41 +1,61 @@
 // app/signup.tsx
+import { Picker } from '@react-native-picker/picker';
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import Animated, { useAnimatedStyle, useSharedValue, withDelay, withSequence, withTiming } from 'react-native-reanimated';
 import { authStorage } from '../utils/auth';
 
 const ADJECTIVES = ['anon', 'viber', 'matrix', 'shadow', 'cyber', 'ghost', 'echo', 'crypto', 'prime', 'nodal'];
 const NOUNS = ['hunter', 'weaver', 'rider', 'runner', 'walker', 'ghost', 'beacon', 'spark', 'vector', 'pixel'];
 
+const ETHIOPIAN_CITIES = [
+  'Addis Ababa', 'Adama', 'Gondar', 'Mekele', 'Hawassa', 
+  'Bahir Dar', 'Dire Dawa', 'Dessie', 'Jimma', 'Jijiga', 
+  'Shashamane', 'Bishoftu'
+];
+
+const BIOS = [
+  "Just tracking local waves.",
+  "Anonymously observing.",
+  "Here for the nested raw feeds.",
+  "Vibing on the dark side of the network."
+];
+
 export default function SignupScreen() {
   const router = useRouter();
-  
-  // Form states
+  const [step, setStep] = useState(1);
+
+  // Payload Registration States
   const [username, setUsername] = useState('');
-  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [age, setAge] = useState('');
+  const [gender, setGender] = useState('Prefer not to say');
+  const [area, setArea] = useState('Addis Ababa'); 
+  const [avatarId, setAvatarId] = useState(1);
+  const [bio, setBio] = useState('');
+
   const [loading, setLoading] = useState(false);
 
   // Custom Toast States
   const [toastMessage, setToastMessage] = useState('');
   const [toastType, setToastType] = useState<'success' | 'error'>('error');
-  const toastY = useSharedValue(-150); // Hidden off-screen by default
+  const toastY = useSharedValue(-150);
 
-  // Auto-generate identity on mount
   useEffect(() => {
     const randomAdj = ADJECTIVES[Math.floor(Math.random() * ADJECTIVES.length)];
     const randomNoun = NOUNS[Math.floor(Math.random() * NOUNS.length)];
     const randomNumber = Math.floor(1000 + Math.random() * 9000);
+    
     setUsername(`${randomAdj}_${randomNoun}_${randomNumber}`);
+    setBio(BIOS[Math.floor(Math.random() * BIOS.length)]);
+    setAvatarId(Math.floor(1 + Math.random() * 8));
   }, []);
 
-  // Premium Custom Notification Trigger
   const triggerNotification = (message: string, type: 'success' | 'error', callback?: () => void) => {
     setToastMessage(message);
     setToastType(type);
     
-    // Smooth entry sequence, hold for 2.5 seconds, then slip back up
     toastY.value = withSequence(
       withTiming(50, { duration: 350 }), 
       withDelay(2500, withTiming(-150, { duration: 300 }, (finished) => {
@@ -51,9 +71,17 @@ export default function SignupScreen() {
     backgroundColor: toastType === 'success' ? '#00CEC9' : '#FF7675'
   }));
 
-  const handleSignup = async () => {
+  const handleNextStep = () => {
     if (!username.trim() || !password) {
-      triggerNotification('Username and password are required!', 'error');
+      triggerNotification('Set up your username and password first!', 'error');
+      return;
+    }
+    setStep(2);
+  };
+
+  const handleSignup = async () => {
+    if (!age.trim()) {
+      triggerNotification('Please provide your age to complete setup.', 'error');
       return;
     }
 
@@ -62,41 +90,65 @@ export default function SignupScreen() {
     try {
       const BASE_URL = process.env.EXPO_PUBLIC_API_URL;
       
-      const response = await fetch(`${BASE_URL}/auth/signup`, {
+      const response = await fetch(`${BASE_URL}/api/auth/signup`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           username: username.trim().toLowerCase(),
           password: password,
-          ...(email.trim() && { email: email.trim().toLowerCase() }),
+          age: parseInt(age.trim(), 10) || 0,
+          gender: gender,
+          area: area,
+          avatarId: avatarId,
+          bio: bio.trim()
         }),
       });
 
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.message || 'Something went wrong during signup.');
-      }
-
-      if (data.token) {
+      const contentType = response.headers.get('content-type');
+      let data: any = {};
+      
+      if (contentType && contentType.includes('application/json')) {
+        data = await response.json();
+        if (data.token) {
         await authStorage.saveToken(data.token);
       }
 
-      // Smoothly alert success, then navigate once the notification slides out
-      triggerNotification('Account verification complete! 🎉', 'success', () => {
+      // 1. Fire the visual notice instantly
+      triggerNotification('Identity established! 🚀', 'success');
+
+      // 2. Route immediately without waiting 2.5+ seconds for animations
+      setTimeout(() => {
         router.replace('/(tabs)');
-      });
+      }, 100);
+
+
+      } else {
+        throw new Error(`Endpoint response mismatch. Verify your network target: ${BASE_URL}`);
+      }
+
+      if (!response.ok) {
+        throw new Error(data.message || 'Required payload keys are missing or invalid.');
+      }
+
+    //   if (data.token) {
+    //     await authStorage.saveToken(data.token);
+    //   }
+
+    //   triggerNotification('Identity established! 🚀', 'success', () => {
+    //     router.replace('/(tabs)');
+    //   });
+    
 
     } catch (error: any) {
-      triggerNotification(error.message || 'Could not reach backend infrastructure.', 'error');
+      triggerNotification(error.message, 'error');
     } finally {
       setLoading(false);
     }
+    
   };
 
   return (
     <View style={styles.container}>
-      {/* 🔮 PREMIUM ACCENTED SLIDE NOTIFICATION TOAST */}
       <Animated.View style={[styles.toastContainer, animatedToastStyle]}>
         <Text style={styles.toastText}>{toastMessage}</Text>
       </Animated.View>
@@ -105,65 +157,111 @@ export default function SignupScreen() {
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'} 
         style={{ flex: 1 }}
       >
-        <View style={styles.innerContainer}>
+        <ScrollView contentContainerStyle={styles.scrollContainer} keyboardShouldPersistTaps="handled">
           <View style={styles.headerBlock}>
-            <Text style={styles.title}>Create Account</Text>
-            <Text style={styles.subtitle}>Join Tona. We've set up a burner identity for you, feel free to edit it.</Text>
+            <Text style={styles.title}>Secure Identity</Text>
+            <Text style={styles.subtitle}>
+              {step === 1 ? "Confirm your secret access keys." : "Tailor your network presentation metrics."}
+            </Text>
           </View>
 
-          <View style={styles.form}>
-            <Text style={styles.label}>Username</Text>
-            <TextInput 
-              style={styles.input}
-              value={username}
-              onChangeText={setUsername}
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
+          {step === 1 ? (
+            <View style={styles.form}>
+              <Text style={styles.label}>Burner Handle</Text>
+              <TextInput 
+                style={styles.input}
+                value={username}
+                onChangeText={setUsername}
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
 
-            <View style={styles.labelRow}>
-              <Text style={styles.label}>Email Address</Text>
-              <Text style={styles.optionalBadge}>Optional</Text>
+              <Text style={styles.label}>Access Password</Text>
+              <TextInput 
+                style={styles.input}
+                placeholder="••••••••"
+                placeholderTextColor="#A0AEC0"
+                value={password}
+                onChangeText={setPassword}
+                secureTextEntry
+                autoCapitalize="none"
+              />
+
+              <Pressable style={styles.button} onPress={handleNextStep}>
+                <Text style={styles.buttonText}>Continue Setup</Text>
+              </Pressable>
             </View>
-            <TextInput 
-              style={styles.input}
-              placeholder="yourname@domain.com"
-              placeholderTextColor="#A0AEC0"
-              value={email}
-              onChangeText={setEmail}
-              keyboardType="email-address"
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
+          ) : (
+            <View style={styles.form}>
+              <View style={styles.row}>
+                <View style={{ flex: 1, marginRight: 12 }}>
+                  <Text style={styles.label}>Age</Text>
+                  <TextInput 
+                    style={styles.input}
+                    placeholder="21"
+                    placeholderTextColor="#A0AEC0"
+                    value={age}
+                    onChangeText={setAge}
+                    keyboardType="number-pad"
+                    maxLength={3}
+                  />
+                </View>
 
-            <Text style={styles.label}>Password</Text>
-            <TextInput 
-              style={styles.input}
-              placeholder="••••••••"
-              placeholderTextColor="#A0AEC0"
-              value={password}
-              onChangeText={setPassword}
-              secureTextEntry
-              autoCapitalize="none"
-            />
+                <View style={{ flex: 2 }}>
+                  <Text style={styles.label}>Location Area</Text>
+                  <View style={styles.pickerContainer}>
+                    <Picker
+                      selectedValue={area}
+                      onValueChange={(itemValue) => setArea(itemValue)}
+                      dropdownIconColor="#FFFFFF"
+                      style={styles.picker}
+                    >
+                      {ETHIOPIAN_CITIES.map((city) => (
+                        <Picker.Item key={city} label={city} value={city} color={Platform.OS === 'ios' ? '#FFFFFF' : '#0F0C20'} />
+                      ))}
+                    </Picker>
+                  </View>
+                </View>
+              </View>
 
-            <Pressable 
-              style={[styles.button, loading && styles.buttonDisabled]} 
-              onPress={handleSignup}
-              disabled={loading}
-            >
-              {loading ? (
-                <ActivityIndicator color="#0F0C20" />
-              ) : (
-                <Text style={styles.buttonText}>Sign Up</Text>
-              )}
-            </Pressable>
+              <Text style={styles.label}>Gender Metric</Text>
+              <View style={styles.genderRow}>
+                {['Male', 'Female', 'Other'].map((g) => (
+                  <Pressable 
+                    key={g} 
+                    style={[styles.genderButton, gender === g && styles.genderActive]} 
+                    onPress={() => setGender(g)}
+                  >
+                    <Text style={[styles.genderText, gender === g && styles.textActive]}>{g}</Text>
+                  </Pressable>
+                ))}
+              </View>
 
-            <Pressable style={styles.loginLink} onPress={() => router.push('/login')}>
-              <Text style={styles.loginLinkText}>Already have an account? Log In</Text>
-            </Pressable>
-          </View>
-        </View>
+              <Text style={styles.label}>Profile Bio</Text>
+              <TextInput 
+                style={[styles.input, { height: 80, textAlignVertical: 'top' }]}
+                value={bio}
+                onChangeText={setBio}
+                multiline
+                numberOfLines={3}
+              />
+
+              <View style={styles.buttonActionGroup}>
+                <Pressable style={styles.backButton} onPress={() => setStep(1)}>
+                  <Text style={styles.backButtonText}>Back</Text>
+                </Pressable>
+
+                <Pressable 
+                  style={[styles.submitButton, loading && styles.buttonDisabled]} 
+                  onPress={handleSignup}
+                  disabled={loading}
+                >
+                  {loading ? <ActivityIndicator color="#0F0C20" /> : <Text style={styles.buttonText}>Submit</Text>}
+                </Pressable>
+              </View>
+            </View>
+          )}
+        </ScrollView>
       </KeyboardAvoidingView>
     </View>
   );
@@ -174,6 +272,12 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#0F0C20',
   },
+  scrollContainer: {
+    flexGrow: 1,
+    justifyContent: 'center',
+    paddingHorizontal: 28,
+    paddingVertical: 40,
+  },
   toastContainer: {
     position: 'absolute',
     top: 0,
@@ -183,25 +287,15 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     paddingHorizontal: 20,
     zIndex: 999,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.35,
-    shadowRadius: 12,
-    elevation: 8,
   },
   toastText: {
     color: '#0F0C20',
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: '700',
     textAlign: 'center',
   },
-  innerContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    paddingHorizontal: 28,
-  },
   headerBlock: {
-    marginBottom: 32,
+    marginBottom: 28,
   },
   title: {
     fontSize: 32,
@@ -218,23 +312,11 @@ const styles = StyleSheet.create({
   form: {
     width: '100%',
   },
-  labelRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginTop: 16,
-  },
   label: {
     color: '#FFFFFF',
     fontSize: 14,
     fontWeight: '600',
     marginBottom: 8,
-    marginTop: 16,
-  },
-  optionalBadge: {
-    color: '#6C5CE7',
-    fontSize: 12,
-    fontWeight: '700',
     marginTop: 16,
   },
   input: {
@@ -247,6 +329,47 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#2D1F5C',
   },
+  pickerContainer: {
+    backgroundColor: '#1A103C',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#2D1F5C',
+    justifyContent: 'center',
+    height: 52,
+  },
+  picker: {
+    color: '#FFFFFF',
+    width: '100%',
+  },
+  row: {
+    flexDirection: 'row',
+  },
+  genderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 4,
+  },
+  genderButton: {
+    flex: 1,
+    backgroundColor: '#1A103C',
+    paddingVertical: 12,
+    borderRadius: 10,
+    alignItems: 'center',
+    marginHorizontal: 4,
+    borderWidth: 1,
+    borderColor: '#2D1F5C',
+  },
+  genderActive: {
+    backgroundColor: '#6C5CE7',
+    borderColor: '#6C5CE7',
+  },
+  genderText: {
+    color: '#A0AEC0',
+    fontWeight: '600',
+  },
+  textActive: {
+    color: '#FFFFFF',
+  },
   button: {
     backgroundColor: '#FFFFFF',
     borderRadius: 12,
@@ -254,11 +377,30 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginTop: 32,
-    shadowColor: '#6C5CE7',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 10,
-    elevation: 4,
+  },
+  buttonActionGroup: {
+    flexDirection: 'row',
+    marginTop: 32,
+    alignItems: 'center',
+  },
+  backButton: {
+    flex: 1,
+    paddingVertical: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  backButtonText: {
+    color: '#A0AEC0',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  submitButton: {
+    flex: 2,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    paddingVertical: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   buttonDisabled: {
     opacity: 0.6,
@@ -267,14 +409,5 @@ const styles = StyleSheet.create({
     color: '#0F0C20',
     fontSize: 16,
     fontWeight: '700',
-  },
-  loginLink: {
-    marginTop: 20,
-    alignItems: 'center',
-  },
-  loginLinkText: {
-    color: '#6C5CE7',
-    fontSize: 14,
-    fontWeight: '600',
   },
 });
